@@ -43,17 +43,17 @@ impl TryFrom<[u8; 4]> for ChunkType {
 
     fn try_from(value: [u8; 4]) -> Result<Self, Self::Error> {
         let mut chunk_type = vec![];
-        let mut is_error = false;
+        let mut is_error = ChunkTypeError::None;
 
         for i in value {
             match i {
-                97..=122 => chunk_type.push(i as char),
-                _ => is_error = true,
+                65..=122 => chunk_type.push(i as char),
+                _ => is_error = ChunkTypeError::ValueNotInRange,
             }
         }
 
-        if is_error {
-            Err(ChunkTypeError::ValueNotInRange)
+        if is_error != ChunkTypeError::None {
+            Err(is_error)
         } else {
             Ok(Self { chunk_type })
         }
@@ -74,7 +74,11 @@ impl FromStr for ChunkType {
         }
 
         for i in s.chars() {
-            chunk_type.push(i)
+            let i = i as u8;
+            match i {
+                65..=122 => chunk_type.push(i as char),
+                _ => is_error = ChunkTypeError::ValueNotInRange,
+            }
         }
 
         if is_error != ChunkTypeError::None {
@@ -96,25 +100,56 @@ impl ChunkType {
     }
 
     fn is_valid(&self) -> bool {
-        true
+        let bytes = self.bytes();
+
+        if bytes[2] & 32 == 0 {
+            true
+        } else {
+            false
+        }
     }
 
     fn is_critical(&self) -> bool {
-        true
+        let bytes = self.bytes();
+
+        if bytes[0] & 32 > 0 {
+            false
+        } else {
+            true
+        }
     }
 
     fn is_public(&self) -> bool {
-        true
+        let bytes = self.bytes();
+
+        if bytes[1] & 32 == 0 {
+            true
+        } else {
+            false
+        }
     }
 
     fn is_reserved_bit_valid(&self) -> bool {
-        true
+        let bytes = self.bytes();
+
+        if bytes[2] & 32 == 0 {
+            true
+        } else {
+            false
+        }
     }
 
     fn is_safe_to_copy(&self) -> bool {
-        true
+        let bytes = self.bytes();
+
+        if bytes[3] & 32 == 0 {
+            false
+        } else {
+            true
+        }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
