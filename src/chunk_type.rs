@@ -2,12 +2,12 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 struct ChunkType {
     chunk_type: Vec<char>,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum ChunkTypeError {
     ValueNotInRange,
     StrNotCorrctLngth,
