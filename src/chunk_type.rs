@@ -3,12 +3,12 @@ use std::fmt;
 use std::str::FromStr;
 
 #[derive(Eq, PartialEq, Debug)]
-struct ChunkType {
+pub struct ChunkType {
     chunk_type: Vec<char>,
 }
 
 #[derive(PartialEq, Debug)]
-enum ChunkTypeError {
+pub enum ChunkTypeError {
     ValueNotInRange,
     StrNotCorrctLngth,
     None,
@@ -60,6 +60,28 @@ impl TryFrom<[u8; 4]> for ChunkType {
     }
 }
 
+impl TryFrom<&[u8; 4]> for ChunkType {
+    type Error = ChunkTypeError;
+
+    fn try_from(value: &[u8; 4]) -> Result<Self, Self::Error> {
+        let mut chunk_type = vec![];
+        let mut is_error = ChunkTypeError::None;
+
+        for i in value {
+            match i {
+                65..=122 => chunk_type.push(*i as char),
+                _ => is_error = ChunkTypeError::ValueNotInRange,
+            }
+        }
+
+        if is_error != ChunkTypeError::None {
+            Err(is_error)
+        } else {
+            Ok(Self { chunk_type })
+        }
+    }
+}
+
 impl FromStr for ChunkType {
     type Err = ChunkTypeError;
 
@@ -90,7 +112,7 @@ impl FromStr for ChunkType {
 }
 
 impl ChunkType {
-    fn bytes(&self) -> [u8; 4] {
+    pub fn bytes(&self) -> [u8; 4] {
         self.chunk_type
             .iter()
             .map(|x| *x as u8)
@@ -99,7 +121,7 @@ impl ChunkType {
             .unwrap()
     }
 
-    fn is_valid(&self) -> bool {
+    pub fn is_valid(&self) -> bool {
         let bytes = self.bytes();
 
         if bytes[2] & 32 == 0 {
@@ -109,7 +131,7 @@ impl ChunkType {
         }
     }
 
-    fn is_critical(&self) -> bool {
+    pub fn is_critical(&self) -> bool {
         let bytes = self.bytes();
 
         if bytes[0] & 32 > 0 {
@@ -119,7 +141,7 @@ impl ChunkType {
         }
     }
 
-    fn is_public(&self) -> bool {
+    pub fn is_public(&self) -> bool {
         let bytes = self.bytes();
 
         if bytes[1] & 32 == 0 {
@@ -129,7 +151,7 @@ impl ChunkType {
         }
     }
 
-    fn is_reserved_bit_valid(&self) -> bool {
+    pub fn is_reserved_bit_valid(&self) -> bool {
         let bytes = self.bytes();
 
         if bytes[2] & 32 == 0 {
@@ -139,7 +161,7 @@ impl ChunkType {
         }
     }
 
-    fn is_safe_to_copy(&self) -> bool {
+    pub fn is_safe_to_copy(&self) -> bool {
         let bytes = self.bytes();
 
         if bytes[3] & 32 == 0 {
