@@ -3,19 +3,25 @@ use crate::chunk_type::ChunkType;
 use std::convert::TryFrom;
 use std::fmt;
 
-struct Chunk {
+pub struct Chunk {
   length: u32,
   chunk_type: ChunkType,
   data: Vec<u8>,
   crc: u32
 }
 
-#[derive(Debug)]
-enum Error {
+#[derive(Debug, PartialEq)]
+pub enum Error {
   InputTooSmall(usize),
-  ChunkTypeNotValid,
+  ChunkTypeNotValid([u8; 4]),
   CrcMissMatch(u32, u32),
-  NotOk
+  InvalidHeader([u8; 8]),
+  NotOk,
+  ChunkDoesNotExsist,
+  TooSmall,
+  ValueNotInRange,
+  StrNotCorrctLngth,
+  None
 }
 
 impl fmt::Display for Chunk {
@@ -34,7 +40,7 @@ impl TryFrom<&[u8]> for Chunk {
   type Error = Error;
 
   fn try_from(value: &[u8]) -> Result<Self, Error> {
-    if value.len() < 16 {
+    if value.len() < 12 {
       return Err(Error::InputTooSmall(value.len()));
     }
     
@@ -54,7 +60,7 @@ impl TryFrom<&[u8]> for Chunk {
     
     let chunk_type = match ChunkType::try_from(chunk_type) {
       Ok(dat) => dat,
-      Err(_) => return Err(Error::ChunkTypeNotValid)
+      Err(_) => return Err(Error::ChunkTypeNotValid(chunk_type.to_owned()))
     };
 
     let (data, value) = value.split_at(data_length);
@@ -132,10 +138,16 @@ impl Chunk {
   }
   
   pub fn as_bytes(&self) -> Vec<u8> {
-    self.data.clone()
+    self.data.len()
+      .to_be_bytes()
+      .iter()
+      .chain(self.chunk_type.bytes().iter())
+      .chain(self.data.iter())
+      .chain(self.crc().to_be_bytes().iter())
+      .copied()
+      .collect()
   }
 }
-
 
 #[cfg(test)]
 mod tests {

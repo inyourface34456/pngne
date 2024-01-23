@@ -1,17 +1,11 @@
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
+use crate::chunk::Error;
 
 #[derive(Eq, PartialEq, Debug)]
 pub struct ChunkType {
     chunk_type: Vec<char>,
-}
-
-#[derive(PartialEq, Debug)]
-pub enum ChunkTypeError {
-    ValueNotInRange,
-    StrNotCorrctLngth,
-    None,
 }
 
 impl fmt::Display for ChunkType {
@@ -39,20 +33,21 @@ impl fmt::Display for ChunkType {
 }
 
 impl TryFrom<[u8; 4]> for ChunkType {
-    type Error = ChunkTypeError;
+    type Error = Error;
 
     fn try_from(value: [u8; 4]) -> Result<Self, Self::Error> {
         let mut chunk_type = vec![];
-        let mut is_error = ChunkTypeError::None;
+        let mut is_error = Error::None;
 
         for i in value {
             match i {
-                65..=122 => chunk_type.push(i as char),
-                _ => is_error = ChunkTypeError::ValueNotInRange,
+                65..=90 => chunk_type.push(i as char),
+                97..=122 => chunk_type.push(i as char),
+                _ => is_error = Error::ValueNotInRange,
             }
         }
 
-        if is_error != ChunkTypeError::None {
+        if is_error != Error::None {
             Err(is_error)
         } else {
             Ok(Self { chunk_type })
@@ -61,20 +56,21 @@ impl TryFrom<[u8; 4]> for ChunkType {
 }
 
 impl TryFrom<&[u8; 4]> for ChunkType {
-    type Error = ChunkTypeError;
+    type Error = Error;
 
     fn try_from(value: &[u8; 4]) -> Result<Self, Self::Error> {
         let mut chunk_type = vec![];
-        let mut is_error = ChunkTypeError::None;
+        let mut is_error = Error::None;
 
         for i in value {
             match i {
-                65..=122 => chunk_type.push(*i as char),
-                _ => is_error = ChunkTypeError::ValueNotInRange,
+                65..=90 => chunk_type.push(*i as char),
+                97..=122 => chunk_type.push(*i as char),
+                _ => is_error = Error::ValueNotInRange,
             }
         }
 
-        if is_error != ChunkTypeError::None {
+        if is_error != Error::None {
             Err(is_error)
         } else {
             Ok(Self { chunk_type })
@@ -83,14 +79,14 @@ impl TryFrom<&[u8; 4]> for ChunkType {
 }
 
 impl FromStr for ChunkType {
-    type Err = ChunkTypeError;
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut is_error = ChunkTypeError::StrNotCorrctLngth;
+        let mut is_error = Error::StrNotCorrctLngth;
         let mut chunk_type = vec![];
 
         if s.len() == 4 {
-            is_error = ChunkTypeError::None;
+            is_error = Error::None;
         } else {
             return Err(is_error);
         }
@@ -98,12 +94,13 @@ impl FromStr for ChunkType {
         for i in s.chars() {
             let i = i as u8;
             match i {
-                65..=122 => chunk_type.push(i as char),
-                _ => is_error = ChunkTypeError::ValueNotInRange,
+                65..=90 => chunk_type.push(i as char),
+                97..=122 => chunk_type.push(i as char),
+                _ => is_error = Error::ValueNotInRange,
             }
         }
 
-        if is_error != ChunkTypeError::None {
+        if is_error != Error::None {
             Err(is_error)
         } else {
             Ok(Self { chunk_type })
