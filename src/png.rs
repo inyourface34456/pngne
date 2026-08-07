@@ -1,113 +1,123 @@
-use crate::chunk::{Chunk, Error};
-use std::convert::TryFrom;
-use std::fmt;
+use crate::chunk_type;
+use crate::error::Error;
+use crate::{chunk::Chunk, chunk_type::ChunkType};
+use std::str::FromStr;
 
+#[derive(Debug)]
 pub struct Png {
-  chunks: Vec<Chunk>
+    chunks: Vec<Chunk>,
 }
 
 impl Png {
-  const STANDARD_HEADER: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
+    const STANDARD_HEADER: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
 
-  pub fn from_chunks(chunks: Vec<Chunk>) -> Png {
-    Self { chunks }
-  }
-  
-  pub fn append_chunk(&mut self, chunk: Chunk) {
-    self.chunks.push(chunk)
-  }
-  
-  pub fn remove_chunk(&mut self, chunk_type: &str) -> Result<Chunk, Error> {
-    let mut index_to_remove = None;
+    pub fn from_chunks(chunks: Vec<Chunk>) -> Self {
+        Self { chunks }
+    }
+    pub fn append_chunk(&mut self, chunk: Chunk) {
+        self.chunks.push(chunk);
+    }
+
+    pub fn remove_first_chunk(&mut self, chunk_type: &str) -> Result<Chunk, crate::Error> {
+        let chunk_type = ChunkType::from_str(chunk_type)?;
+        let mut found = Err(Error::ChunkTypeNotFound.into());
+        for (index, element) in self.chunks.iter().enumerate() {
+            if element.chunk_type() == &chunk_type {
+                found = Ok((index, element.clone()));
+            }
+        }
+
+        match found {
+            Ok((index, element)) => {
+                self.chunks.remove(index);
+                Ok(element)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    #[allow(clippy::unused_self)]
+    pub fn header(&self) -> &[u8; 8] {
+        &Self::STANDARD_HEADER
+    }
+
+    pub fn chunks(&self) -> &[Chunk] {
+        &self.chunks
+    }
+
+    // speaking from an api standpoint, this is a bad return type. it shyould be a Result,
+    // beacuse the chunk_type might not be valid, therefore ther is more the one reason that
+    // that this function could return None, resulting in confusing errors when working with this.
+    // the chunk_type should be the ChunkType struct, as that is going to be valid (enough)
+    // for this operation
+    pub fn chunk_by_type(&self, chunk_type: &str) -> Option<&Chunk> {
+        let chunk_type = ChunkType::from_str(chunk_type).ok()?;
+        self.chunks.iter().find(|f| f.chunk_type() == &chunk_type)
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.chunks
+            .iter()
+            .fold(self.header().to_vec(), |mut acc, f| {
+                acc.append(&mut f.as_bytes());
+                acc
+            })
+    }
+
+    fn read_u32(value: &[u8], pointer: &mut usize) -> Result<u32, Error> {
+        let bytes = value.get(*pointer..*pointer + 4).ok_or(Error::MalformedInput)?;
+        *pointer += 4;
+        Ok(u32::from_be_bytes(*bytes.as_array::<4>().unwrap()))
+    }
     
-    for (index, value) in self.chunks.iter().enumerate() {
-      if value.chunk_type().to_string() == chunk_type.to_string() {
-        index_to_remove = Some(index);
-      }
-    }
-
-    if let Some(index) = index_to_remove {
-      Ok(self.chunks.remove(index))
-    } else {
-      Err(Error::ChunkDoesNotExsist)
-    }
-  }
-  
-  pub const fn header() -> &'static [u8; 8] {
-    &Png::STANDARD_HEADER
-  }
-  
-  pub fn chunks(&self) -> &[Chunk] {
-    self.chunks.as_slice()
-  }
-  
-  pub fn chunk_by_type(&self, chunk_type: &str) -> Option<&Chunk> {
-    for i in &self.chunks {
-      if i.chunk_type().to_string() == chunk_type.to_string() {
-        return Some(&i)
-      }
-    }
-
-    None
-  }
-  
-  pub fn as_bytes(&self) -> Vec<u8> {
-    let header: Vec<u8> = Png::header().iter().copied().collect();
-    let body: Vec<u8> = self
-        .chunks
-        .iter()
-        .flat_map(|c| c.as_bytes().into_iter())
-        .collect::<Vec<_>>();
-
-    header.into_iter().chain(body.into_iter()).collect()
-  }
-}
-
-impl fmt::Display for Png {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-       for i in &self.chunks {
-         writeln!(f, "{}", i)?;
-       }
-      Ok(())
+    fn read_slice<'a>(value: &'a [u8], pointer: &mut usize, len: usize) -> Result<&'a [u8], Error> {
+        let bytes = value.get(*pointer..*pointer + len).ok_or(Error::MalformedInput)?;
+        *pointer += len;
+        Ok(bytes)
     }
 }
 
 impl TryFrom<&[u8]> for Png {
-  type Error = Error;
+    type Error = crate::Error;
 
-  fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-    if value.len() < Png::STANDARD_HEADER.len() {
-      return Err(Error::TooSmall);
+    // my favorate part of the code, and my first time using a pointer like this
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value[..8] == Self::STANDARD_HEADER {
+            let mut pointer = 8;
+            let mut chunks = vec![];
+            while pointer != value.len() {
+                let chunk_length = Self::read_u32(value, &mut pointer)? as usize;
+                let chunk_type = Self::read_u32(value, &mut pointer)?.to_be_bytes();
+                let chunk_type = ChunkType::try_from(chunk_type)?;
+                let data = Self::read_slice(value, &mut pointer, chunk_length)?;
+                let chunk = Chunk::new(chunk_type, data.to_vec());
+                if chunk.crc() == Self::read_u32(value, &mut pointer)? {
+                    chunks.push(chunk);
+                } else {
+                    return Err(Error::InvalidChunk.into());
+                }
+            }
+            Ok(Self { chunks })
+        } else {
+            Err(Error::InvalidHeader(u64::from_be_bytes(*value[0..8].as_array().unwrap())).into())
+        }
     }
+}
 
-    let mut index = 8;
-    let mut chunks = vec![];
-
-    let header = &value[..index];
-
-    let header: [u8; 8] = header.try_into().unwrap();
-
-    if header != Png::STANDARD_HEADER {
-      return Err(Error::InvalidHeader(header));
+impl std::fmt::Display for Png {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for i in &self.chunks {
+            write!(f, "{i}")?;
+        }
+        Ok(())
     }
-
-    while index < value.len() {
-      let inner_val = &value[index..];
-      let next_chunk = Chunk::try_from(inner_val)?;
-      index += (next_chunk.length()+12) as usize;
-      chunks.push(next_chunk);
-    }
-
-    Ok( Self {chunks} )
-    
-  }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chunk_type::ChunkType;
     use crate::chunk::Chunk;
+    use crate::chunk_type::ChunkType;
     use std::convert::TryFrom;
 
     fn testing_chunks() -> Vec<Chunk> {
@@ -123,7 +133,7 @@ mod tests {
         Png::from_chunks(chunks)
     }
 
-    fn chunk_from_strings(chunk_type: &str, data: &str) -> Result<Chunk, Error> {
+    fn chunk_from_strings(chunk_type: &str, data: &str) -> Result<Chunk, crate::Error> {
         use std::str::FromStr;
 
         let chunk_type = ChunkType::from_str(chunk_type)?;
@@ -173,7 +183,7 @@ mod tests {
 
         let png = Png::try_from(bytes.as_ref());
 
-        assert!(png.is_err());
+        assert!(png.is_err(), "{png:?}");
     }
 
     #[test]
@@ -198,7 +208,6 @@ mod tests {
         assert!(png.is_err());
     }
 
-
     #[test]
     fn test_list_chunks() {
         let png = testing_png();
@@ -212,7 +221,6 @@ mod tests {
         let chunk = png.chunk_by_type("FrSt").unwrap();
         assert_eq!(&chunk.chunk_type().to_string(), "FrSt");
         assert_eq!(&chunk.data_as_string().unwrap(), "I am the first chunk");
-
     }
 
     #[test]
@@ -225,10 +233,10 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_chunk() {
+    fn test_remove_first_chunk() {
         let mut png = testing_png();
         png.append_chunk(chunk_from_strings("TeSt", "Message").unwrap());
-        png.remove_chunk("TeSt").unwrap();
+        png.remove_first_chunk("TeSt").unwrap();
         let chunk = png.chunk_by_type("TeSt");
         assert!(chunk.is_none());
     }
@@ -262,7 +270,7 @@ mod tests {
 
         let png: Png = TryFrom::try_from(bytes.as_ref()).unwrap();
 
-        let _png_string = format!("{}", png);
+        let _png_string = format!("{png}");
     }
 
     // This is the raw bytes for a shrunken version of the `dice.png` image on Wikipedia

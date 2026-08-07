@@ -1,171 +1,96 @@
-use std::convert::TryFrom;
-use std::fmt;
+#![allow(clippy::trivially_copy_pass_by_ref)]
+use crate::error::Error;
 use std::str::FromStr;
-use crate::chunk::Error;
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct ChunkType {
-    chunk_type: Vec<char>,
+    png_type: [u8; 4],
 }
 
-impl fmt::Display for ChunkType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut is_error = false;
-        let mut error = fmt::Result::Ok(());
+impl ChunkType {
+    // byte mask, they normly dont get seperators
+    #[allow(clippy::unreadable_literal)]
+    const BYTE_5_MASK: u8 = 0b00100000;
 
-        for i in &self.chunk_type {
-            match write!(f, "{}", i) {
-                Ok(_) => {}
-                Err(e) => {
-                    is_error = true;
-                    error = fmt::Result::Err(e);
-                    break;
-                }
+    pub fn bytes(&self) -> [u8; 4] {
+        self.png_type
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.png_type[2] & Self::BYTE_5_MASK == 0
+    }
+
+    pub fn is_critical(&self) -> bool {
+        self.png_type[0] & Self::BYTE_5_MASK == 0
+    }
+
+    pub fn is_public(&self) -> bool {
+        self.png_type[1] & Self::BYTE_5_MASK == 0
+    }
+
+    pub fn is_reserved_bit_valid(&self) -> bool {
+        self.is_valid()
+    }
+
+    pub fn is_safe_to_copy(&self) -> bool {
+        self.png_type[3] & Self::BYTE_5_MASK != 0
+    }
+
+    fn is_letters(value: [u8; 4]) -> bool {
+        for char in value {
+            match char {
+                65..=90 | 97..=122 => {}
+                _ => return false,
             }
         }
-
-        if is_error {
-            return error;
-        } else {
-            return fmt::Result::Ok(());
-        }
+        true
     }
 }
 
 impl TryFrom<[u8; 4]> for ChunkType {
-    type Error = Error;
+    type Error = crate::Error;
 
     fn try_from(value: [u8; 4]) -> Result<Self, Self::Error> {
-        let mut chunk_type = vec![];
-        let mut is_error = Error::None;
-
-        for i in value {
-            match i {
-                65..=90 => chunk_type.push(i as char),
-                97..=122 => chunk_type.push(i as char),
-                _ => is_error = Error::ValueNotInRange,
-            }
-        }
-
-        if is_error != Error::None {
-            Err(is_error)
+        if Self::is_letters(value) {
+            Ok(ChunkType { png_type: value })
         } else {
-            Ok(Self { chunk_type })
-        }
-    }
-}
-
-impl TryFrom<&[u8; 4]> for ChunkType {
-    type Error = Error;
-
-    fn try_from(value: &[u8; 4]) -> Result<Self, Self::Error> {
-        let mut chunk_type = vec![];
-        let mut is_error = Error::None;
-
-        for i in value {
-            match i {
-                65..=90 => chunk_type.push(*i as char),
-                97..=122 => chunk_type.push(*i as char),
-                _ => is_error = Error::ValueNotInRange,
-            }
-        }
-
-        if is_error != Error::None {
-            Err(is_error)
-        } else {
-            Ok(Self { chunk_type })
+            Err(Error::ContainsNumbers(u32::from_be_bytes(value)).into())
         }
     }
 }
 
 impl FromStr for ChunkType {
-    type Err = Error;
+    type Err = crate::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut is_error = Error::StrNotCorrctLngth;
-        let mut chunk_type = vec![];
+        let bytes: Vec<u8> = s.bytes().collect();
 
-        if s.len() == 4 {
-            is_error = Error::None;
-        } else {
-            return Err(is_error);
-        }
-
-        for i in s.chars() {
-            let i = i as u8;
-            match i {
-                65..=90 => chunk_type.push(i as char),
-                97..=122 => chunk_type.push(i as char),
-                _ => is_error = Error::ValueNotInRange,
+        match bytes.len() {
+            4 => {
+                let bytes = bytes.as_array().unwrap();
+                if Self::is_letters(*bytes) {
+                    Ok(Self { png_type: *bytes })
+                } else {
+                    Err(Error::ContainsNumbers(u32::from_be_bytes(*bytes)).into())
+                }
             }
-        }
-
-        if is_error != Error::None {
-            Err(is_error)
-        } else {
-            Ok(Self { chunk_type })
+            0..4 => Err(Error::StringTooShort.into()),
+            5..usize::MAX => Err(Error::StringTooLong.into()),
+            _ => Err(Error::StringNotRightLen.into()),
         }
     }
 }
 
-impl ChunkType {
-    pub fn bytes(&self) -> [u8; 4] {
-        self.chunk_type
-            .iter()
-            .map(|x| *x as u8)
-            .collect::<Vec<u8>>()
-            .try_into()
-            .unwrap()
-    }
-
-    pub fn is_valid(&self) -> bool {
-        let bytes = self.bytes();
-
-        if bytes[2] & 32 == 0 {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn is_critical(&self) -> bool {
-        let bytes = self.bytes();
-
-        if bytes[0] & 32 > 0 {
-            false
-        } else {
-            true
-        }
-    }
-
-    pub fn is_public(&self) -> bool {
-        let bytes = self.bytes();
-
-        if bytes[1] & 32 == 0 {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn is_reserved_bit_valid(&self) -> bool {
-        let bytes = self.bytes();
-
-        if bytes[2] & 32 == 0 {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn is_safe_to_copy(&self) -> bool {
-        let bytes = self.bytes();
-
-        if bytes[3] & 32 == 0 {
-            false
-        } else {
-            true
-        }
+impl std::fmt::Display for ChunkType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}{}{}",
+            self.png_type[0] as char,
+            self.png_type[1] as char,
+            self.png_type[2] as char,
+            self.png_type[3] as char
+        )
     }
 }
 
@@ -263,7 +188,8 @@ mod tests {
     pub fn test_chunk_type_trait_impls() {
         let chunk_type_1: ChunkType = TryFrom::try_from([82, 117, 83, 116]).unwrap();
         let chunk_type_2: ChunkType = FromStr::from_str("RuSt").unwrap();
-        let _chunk_string = format!("{}", chunk_type_1);
+        let _chunk_string = format!("{chunk_type_1}");
+        #[allow(clippy::no_effect_underscore_binding)]
         let _are_chunks_equal = chunk_type_1 == chunk_type_2;
     }
 }
